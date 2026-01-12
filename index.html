@@ -4,12 +4,17 @@
     <title>Audio Monitor - Receiver</title>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
-<body>
+<body style="font-family: sans-serif; text-align: center; padding: 20px;">
     <h2>Store Audio Monitor (Live)</h2>
-    <button id="listenBtn" style="padding: 20px; background: green; color: white; border-radius: 10px;">START LISTENING</button>
-    <div id="status" style="margin-top: 20px; font-weight: bold;">Status: Waiting...</div>
-    <audio id="remoteAudio" autoplay controls style="margin-top: 20px;"></audio>
+    <button id="listenBtn" style="padding: 20px; font-size: 18px; background: green; color: white; border: none; border-radius: 10px; cursor: pointer;">START LISTENING</button>
+    
+    <div id="status" style="margin-top: 20px; font-weight: bold; color: blue;">Status: Waiting...</div>
+    
+    <audio id="remoteAudio" autoplay playsinline muted controls style="margin-top: 20px; width: 100%; border: 1px solid #ccc;"></audio>
+    
+    <p style="margin-top: 10px; color: gray; font-size: 12px;">নোট: কানেক্ট হওয়ার পর অডিও প্লেয়ারের স্পিকার আইকনে ক্লিক করে আন-মিউট করুন।</p>
 
     <script>
         const firebaseConfig = {
@@ -28,16 +33,28 @@
             iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
         });
 
+        // অডিও আসার সাথে সাথে প্লে করার জন্য
         pc.ontrack = (event) => {
-            document.getElementById('remoteAudio').srcObject = event.streams[0];
+            const audio = document.getElementById('remoteAudio');
+            audio.srcObject = event.streams[0];
+            audio.play().catch(e => console.log("Auto-play blocked, please click play manually."));
             document.getElementById('status').innerText = "Status: Connected - Listening Live!";
+            document.getElementById('status').style.color = "green";
         };
 
         document.getElementById('listenBtn').onclick = async () => {
+            // আইফোনে অডিও এনাবল করার জন্য একটি ছোট্ট ট্রিক
+            document.getElementById('remoteAudio').play(); 
+            
             document.getElementById('status').innerText = "Status: Calling Store Phone...";
+            database.ref('calls/store').remove(); // আগের পুরোনো ডেটা ক্লিয়ার করা
+
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
-            database.ref('calls/store').set({ offer: offer.sdp });
+            
+            setTimeout(() => {
+                database.ref('calls/store').set({ offer: pc.localDescription.sdp });
+            }, 500);
         };
 
         database.ref('calls/store/answer').on('value', async (snapshot) => {
@@ -46,6 +63,13 @@
                 await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: answer }));
             }
         });
+
+        // ICE candidate হ্যান্ডলিং
+        pc.onicecandidate = (event) => {
+            if (event.candidate) {
+                database.ref('calls/store/receiverIce').push(event.candidate.toJSON());
+            }
+        };
     </script>
 </body>
 </html>
