@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <title>Receiver - Listen Audio</title>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
 </head>
-<body style="text-align:center; padding-top: 50px;">
-    <button id="start" style="padding:20px; font-size:20px;">START LISTENING</button>
+<body style="text-align:center; padding-top: 50px; font-family: sans-serif;">
+    <h2>Receiver (Admin Panel)</h2>
+    <button id="start" style="padding:20px; font-size:20px; cursor:pointer;">START LISTENING</button>
     <p id="status">Status: Idle</p>
     <audio id="remoteAudio" autoplay controls></audio>
 
@@ -22,14 +24,14 @@
         let pc;
 
         document.getElementById('start').onclick = async () => {
-            document.getElementById('status').innerText = "Connecting...";
-            await db.set(null); // পুরনো ডেটা ক্লিয়ার
+            document.getElementById('status').innerText = "Connecting... Wait for Answer";
+            await db.set(null); 
 
             pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
 
             pc.ontrack = e => {
                 document.getElementById('remoteAudio').srcObject = e.streams[0];
-                document.getElementById('status').innerText = "Streaming Live!";
+                document.getElementById('status').innerText = "Streaming Live! (Listening...)";
             };
 
             pc.onicecandidate = e => {
