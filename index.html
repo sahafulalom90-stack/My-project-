@@ -5,110 +5,111 @@
   <title>Shop Live Audio</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-  <!-- Firebase -->
-  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
-
   <style>
     body {
+      background: #0f172a;
+      color: white;
       font-family: Arial, sans-serif;
       text-align: center;
-      background: #111;
-      color: #fff;
-      padding-top: 80px;
+      padding: 40px;
     }
     button {
-      font-size: 20px;
       padding: 15px 30px;
-      border: none;
+      font-size: 18px;
       border-radius: 8px;
-      background: #00c853;
-      color: white;
+      border: none;
+      background: #22c55e;
+      color: #000;
+      cursor: pointer;
     }
-    p {
+    button:disabled {
+      background: #555;
+      color: #999;
+    }
+    #status {
       margin-top: 20px;
-      opacity: 0.8;
+      font-size: 16px;
+      color: #38bdf8;
     }
   </style>
 </head>
 
 <body>
+  <h2>📡 Shop Live Audio</h2>
+  <p>Tap to listen live</p>
 
-  <h2>🎧 Shop Live Audio</h2>
-  <button id="startBtn">Tap to Start Audio</button>
-  <p id="status">Waiting…</p>
+  <button id="startBtn">▶ Start Listening</button>
+  <div id="status">Idle</div>
 
   <audio id="remoteAudio" autoplay playsinline></audio>
 
-<script>
-/* =======================
-   🔥 FIREBASE CONFIG
-   ======================= */
-const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "XXXX",
-  appId: "XXXX"
-};
+  <!-- Firebase + WebRTC -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-app.js";
+    import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-database.js";
 
-firebase.initializeApp(firebaseConfig);
-const db = firebase.database();
+    // 🔥 YOUR Firebase config
+    const firebaseConfig = {
+      apiKey: "AIzaSyB4sgfAB5QoVRpNOM0eTjM7WWshfj_8BC8",
+      authDomain: "shopaudiosender.firebaseapp.com",
+      databaseURL: "https://shopaudiosender-default-rtdb.firebaseio.com",
+      projectId: "shopaudiosender",
+      storageBucket: "shopaudiosender.firebasestorage.app",
+      messagingSenderId: "300146620683",
+      appId: "1:300146620683:web:ea5381e20d5d2278a2ca0e"
+    };
 
-/* =======================
-   🎧 WEBRTC SETUP
-   ======================= */
-let pc;
-const audio = document.getElementById("remoteAudio");
-const statusText = document.getElementById("status");
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
 
-const iceServers = {
-  iceServers: [
-    { urls: "stun:stun.l.google.com:19302" }
-  ]
-};
+    const startBtn = document.getElementById("startBtn");
+    const status = document.getElementById("status");
+    const audioEl = document.getElementById("remoteAudio");
 
-document.getElementById("startBtn").onclick = async () => {
-  document.getElementById("startBtn").style.display = "none";
-  statusText.innerText = "Connecting…";
+    let pc;
 
-  pc = new RTCPeerConnection(iceServers);
+    startBtn.onclick = async () => {
+      startBtn.disabled = true;
+      status.innerText = "Connecting…";
 
-  pc.ontrack = (event) => {
-    audio.srcObject = event.streams[0];
-    statusText.innerText = "🔊 Live audio connected";
-  };
+      pc = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+      });
 
-  pc.onicecandidate = (event) => {
-    if (event.candidate) {
-      db.ref("webrtc/answerCandidates").push(JSON.stringify(event.candidate));
-    }
-  };
+      pc.ontrack = (event) => {
+        audioEl.srcObject = event.streams[0];
+        status.innerText = "🔊 Live audio playing";
+      };
 
-  /* ===== listen OFFER ===== */
-  db.ref("webrtc/offer").once("value", async snap => {
-    const offer = snap.val();
-    if (!offer) {
-      statusText.innerText = "No live audio available";
-      return;
-    }
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          set(ref(db, "webrtc/receiverCandidate"), event.candidate.toJSON());
+        }
+      };
 
-    await pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(offer)));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
+      // Listen for offer from Android
+      onValue(ref(db, "webrtc/offer"), async (snapshot) => {
+        if (!snapshot.exists()) return;
 
-    db.ref("webrtc/answer").set(JSON.stringify(answer));
-  });
+        const offer = snapshot.val();
+        await pc.setRemoteDescription(new RTCSessionDescription(offer));
 
-  /* ===== listen ICE from Android ===== */
-  db.ref("webrtc/offerCandidates").on("child_added", snap => {
-    const candidate = JSON.parse(snap.val());
-    pc.addIceCandidate(new RTCIceCandidate(candidate));
-  });
-};
-</script>
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
 
+        await set(ref(db, "webrtc/answer"), answer);
+      });
+
+      // Listen for ICE from Android
+      onValue(ref(db, "webrtc/senderCandidate"), (snapshot) => {
+        if (snapshot.exists()) {
+          pc.addIceCandidate(new RTCIceCandidate(snapshot.val()));
+        }
+      });
+
+      // 🔥 Tell Android to START audio
+      await set(ref(db, "control/audio"), "START");
+    };
+  </script>
 </body>
 </html>
